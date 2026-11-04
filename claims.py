@@ -9,9 +9,9 @@ class ClaimError(Exception):
 
 
 def _validate_new_claim(passenger, flight, claim_type, tier):
-    if not passenger.strip():
+    if not passenger or not passenger.strip():
         raise ClaimError("Passenger name cannot be blank.")
-    if not flight.strip():
+    if not flight or not flight.strip():
         raise ClaimError("Flight number cannot be blank.")
     if claim_type not in CLAIM_TYPES:
         allowed = ", ".join(CLAIM_TYPES)
