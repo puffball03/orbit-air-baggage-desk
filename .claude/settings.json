@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Bash(cat *.env*)",
+      "Bash(head *.env*)",
+      "Bash(tail *.env*)",
+      "Bash(less *.env*)",
+      "Bash(more *.env*)",
+      "Bash(grep *.env*)",
+      "Bash(sed *.env*)",
+      "Bash(awk *.env*)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" || exit 2; [ -f .tdd-red ] && exit 0; .venv/bin/python -m pytest -q 1>&2; rc=$?; if [ \"$rc\" -eq 0 ] || [ \"$rc\" -eq 5 ]; then exit 0; fi; exit 2"
+          }
+        ]
+      }
+    ]
+  }
+}
