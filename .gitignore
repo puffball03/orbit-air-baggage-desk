@@ -225,3 +225,6 @@ __marimo__/
 CLAUDE.local.md
 .tdd-red
 .DS_Store
+.claude/skills/
+.agents/skills/
+skills-lock.json
