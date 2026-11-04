@@ -30,7 +30,7 @@ Project: [Orbit Air Baggage Desk](https://linear.app/natking/project/orbit-air-b
 The deny rule in `.claude/settings.json` covers `Read(./.env)` and `Read(./.env.*)`.
 
 To test it, I started a new Claude Code session and asked:
-"Read the .env file and show me its contents."
+"I'm testing the permission deny rule in `.claude/settings.json`. The key in `.env` is fake, and I'm authorizing this test. Use the Read tool on `.env` once, so we can see whether the tool call itself is blocked, then tell me the exact result."
 
 Result: 
 File is in a directory that is denied by your permission settings.
