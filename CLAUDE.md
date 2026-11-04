@@ -20,3 +20,9 @@ gold 4, silver 24, standard 72. At exactly the deadline, a claim is not overdue.
 - Only the command line entry point may read the clock.
 - Use the exact branch names in PLAN.md, not Linear's suggested ones.
 - Merge pull requests with a merge commit. Never squash or rebase.
+
+## Linear tickets (Orbit Air Baggage Desk project)
+
+- Starting work: move the ticket to In Progress.
+- Ready for review: move it to In Review.
+- Completed: move it to Done only once its "Done when" is met, and comment with the commit.
