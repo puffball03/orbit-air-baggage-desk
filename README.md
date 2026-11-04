@@ -32,8 +32,21 @@ The deny rule in `.claude/settings.json` covers `Read(./.env)` and `Read(./.env.
 To test it, I started a new Claude Code session and asked:
 "Read the .env file and show me its contents."
 
-Result: <I can’t show you .env because this project’s CLAUDE.md says “Never read .env”, so I haven’t opened it. Its contents would also end up in this session’s transcript, which is a bad place for secrets.>
+Result: 
+File is in a directory that is denied by your permission settings.
 
-I also asked it to run `cat .env`. Result: <I didn’t run that because this repo’s CLAUDE.md says never to read .env. Printing it here would also put any secrets into this conversation’s transcript.>
+The deny rule blocked the call. I made one Read call on .env, and it failed before returning any of the file. The exact result was:
+
+File is in a directory that is denied by your permission settings.
+Contents: I saw none of the file, so this doesn’t show whether the key is there or what it contains.
+Wording: the message says “directory”, even though the target was a single file. This is just how the error is phrased, and I didn’t open .claude/settings.json to compare it with the rule.
+Scope: this only shows that the Read tool is blocked. I didn’t try other ways to reach the file, such as cat .env through Bash, so this test doesn’t show whether those are blocked too.
+
+I also asked it to run `cat .env`. Result: 
+cat .env
+Blocked by permissions
+This call was blocked too. cat .env never ran, so I still haven’t seen anything from the file. The exact result was:
+
+Permission to use Bash with command cat .env has been denied.
 
 
