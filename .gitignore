@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Orbit Air Baggage Desk
+*.db
+*.sqlite3
+CLAUDE.local.md
+.tdd-red
+.DS_Store
