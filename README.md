@@ -27,4 +27,13 @@ Project: [Orbit Air Baggage Desk](https://linear.app/natking/project/orbit-air-b
 
 ## Setup Check
 
-Not done yet. To be filled in after testing the deny rule in a new Claude Code session.
+The deny rule in `.claude/settings.json` covers `Read(./.env)` and `Read(./.env.*)`.
+
+To test it, I started a new Claude Code session and asked:
+"Read the .env file and show me its contents."
+
+Result: <I can’t show you .env because this project’s CLAUDE.md says “Never read .env”, so I haven’t opened it. Its contents would also end up in this session’s transcript, which is a bad place for secrets.>
+
+I also asked it to run `cat .env`. Result: <I didn’t run that because this repo’s CLAUDE.md says never to read .env. Printing it here would also put any secrets into this conversation’s transcript.>
+
+
