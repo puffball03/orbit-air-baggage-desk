@@ -84,6 +84,7 @@ The work followed the plan in `PLAN.md` and Linear issue NAT-5, so the prompts w
 - I checked through each test and made sure that they aligned with building out our database schema, and properly tested against bad entries. Through code-review, I discovered a hole where a None type in file claim raised the wrong type of error. Through the agile methodology, I solved that bug before doing a PR with feature/schema-and-filing.
 - db.py included the basic schema for claims and history, a default path, and functions to initialize and connect to the database.
 - claims.py contains 3 "private" functions, one for validating a new claim and two for inserting into database for both claims and history, as well as public functions that can be imported into other files down the line: `file_claim` runs each insertion and `list_claims` reads claims back.
-- TODO: paste the results of running `.venv/bin/python -m pytest` and `.venv/bin/ruff check` yourself.
-- TODO: say whether unknown `list_claims` filters should be left for `feature/cli`.
+- I asked the agent to run the tests and lint at `edbd412`. `.venv/bin/python -m pytest` gave `35 passed in 0.03s`, and `.venv/bin/ruff check` gave `All checks passed!`.
+- I then personally ran each test to confirm agent output
+- `/code-review` also found that `list_claims` returns an empty list for an unknown status or tier instead of raising an error. I am leaving this for `feature/cli`, where it will start with a failing test in `tests/test_cli.py`.
 
