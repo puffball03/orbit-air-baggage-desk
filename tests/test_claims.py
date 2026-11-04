@@ -126,6 +126,12 @@ def test_blank_flight_is_rejected(make_claim, flight):
         make_claim(flight=flight)
 
 
+@pytest.mark.parametrize("field", ["passenger", "flight"])
+def test_none_passenger_or_flight_is_rejected(make_claim, field):
+    with pytest.raises(claims.ClaimError, match=f"(?i){field}"):
+        make_claim(**{field: None})
+
+
 @pytest.mark.parametrize("claim_type", ["stolen", "LOST", ""])
 def test_unknown_type_is_rejected(make_claim, claim_type):
     with pytest.raises(claims.ClaimError, match="(?i)type"):
