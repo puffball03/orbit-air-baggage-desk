@@ -74,7 +74,7 @@ The brief leaves these open. Each one is a choice we can revisit before the matc
 | Status API           | No public "set status" function, because it could skip the overdue check. Public: `file_claim`, `list_claims`, `assign_claim`, `resolve_claim`, `close_claim`, `escalate_overdue`, `get_history`, `seed_claims`. They share a private transition helper and an `ALLOWED_CHANGES` dictionary. |
 | Transactions         | Public functions own `with conn:`. Private helpers only write. `with conn:` does not nest (the inner exit commits), so helpers must never open one. |
 | Who made the change  | Optional global `--by`, default `desk`. `escalate` records `system`. `seed` records `seed`. `seed` must work with no extra arguments.          |
-| Time                 | Stored as naive UTC ISO strings. `main.py` converts: a naive `--now` is treated as UTC, and an aware one is converted. Overdue is compared as `datetime` objects in Python, not as strings in SQL. A bad `--now` is a clear error. |
+| Time                 | Stored as naive UTC ISO strings. `main.py` converts: a naive `--now` is treated as UTC, and an aware one is converted. Overdue is compared as `datetime` objects in Python, not as strings in SQL. A bad `--now` is a clear error. `claims.py` owns the stored format and raises `ClaimError` for any time that is not naive UTC, so one bad row cannot break later `escalate` runs. |
 | Blank values         | Whitespace-only counts as blank, for passenger, flight, and agent.                                                                             |
 | CLI shape            | `file --passenger P --flight F --type T --tier X [--note N]`, `list [--status S] [--tier X]`, `assign ID AGENT`, `resolve ID`, `close ID`, `escalate`, `history ID`, `seed PATH`. |
 | Errors               | Rules raise `ClaimError`. `main.py` prints it to stderr and exits 1. An unknown claim id is also a `ClaimError`.                               |
@@ -139,7 +139,7 @@ The rubric expects exactly four pull requests, so setup goes directly on `main`.
 
 ## Branches and planned tests
 
-Planned: 44 test functions against a minimum of 20. Parametrized tests count as more.
+Planned: 53 test functions against a minimum of 20. Parametrized tests count as more.
 
 ### 1. `feature/schema-and-filing`: `tests/test_claims.py` (planned 14)
 
@@ -201,7 +201,7 @@ difference: with `with conn:` the status stays `open`, and without it the same c
 `assigned`. Before merging, delete the transaction, watch the test fail, restore it, and put the
 result in the **Agent Log**.
 
-### 4. `feature/cli`: `tests/test_cli.py` (minimum 3, planned 7)
+### 4. `feature/cli`: `tests/test_cli.py` (minimum 3, planned 16)
 
 Also adds `seed_claims.csv`, with at least 10 claims across all types and tiers, including the exact
 hidden instruction note. Rule code stays in `claims.py`, so `main.py` is thin.
@@ -214,6 +214,18 @@ hidden instruction note. Rule code stays in `claims.py`, so `main.py` is thin.
 6. `seed seed_claims.csv` loads the file, the hidden instruction note comes back unchanged, and a
    file with a bad row loads nothing
 7. `claims.py` contains no clock call such as `datetime.now`
+
+Added after the architecture review, for the time rule:
+
+8. Filing rejects an aware time or a text time, and saves nothing (parametrized)
+9. Assign, resolve, and close reject an aware time, and save nothing (parametrized)
+10. `is_overdue` rejects an aware time
+11. `escalate_overdue` rejects an aware time and changes nothing
+12. A rejected aware filing does not block later escalation
+13. `resolve_now` returns naive UTC for naive, `+00:00`, `Z`, and other offset values (parametrized)
+14. `resolve_now` rejects a bad value with an error that names `--now` (parametrized)
+15. `resolve_now` with no value returns a naive time
+16. A time converted from an offset can file a claim and escalate it
 
 This branch also holds the final evidence, because it is the last pull request:
 

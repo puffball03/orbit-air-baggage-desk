@@ -163,3 +163,36 @@ The work followed the plan in `PLAN.md` and Linear issue NAT-7, so the prompts w
 - I kept both choices the agent made where the plan did not settle them, by committing the tests as written: `escalate_overdue` returns ids in ascending order, and `is_overdue` takes a claim row.
 - I decided to add the batch transaction test, because the rule held only in the code and nothing would have caught a regression.
 
+### feature/cli
+
+This entry covers the desk time fix so far. The commands and `seed` are still to come on this branch.
+
+**Prompts I gave**
+
+1. Review: `/anthropic-skills:improve-codebase-architecture`
+2. Check: "first, make sure your findings dont contradict the project reqs", with the lab brief attached.
+3. Fix: "Lets implement the desk time fix along with the PLAN.md update. Make sure your changes reflect in the agent log in the readme. Include my decision to pursue the desk issue to fix the possible race condition"
+
+**What the agent did**
+
+- Ran the code outside the repository and found that a timezone-aware time saved a deadline ending in `+00:00`. Every later `escalate_overdue` then raised `TypeError` instead of `ClaimError`, and nothing escalated. `--now` takes an ISO timestamp, so an offset is valid input.
+- Forced a second connection between the status check and the write, because the check runs before the transaction starts. One claim got two `open` to `assigned` history rows.
+- Created this branch from the updated `main`, then wrote `tests/test_cli.py` (9 test functions, 17 cases). All 17 failed before any feature code existed, with `8 failed, 9 errors`, and that output is in the message of commit `0ffc3fa`. The agent did not use the `.tdd-red` marker, and it did not stop for my review between the tests and the feature code.
+- Changed `claims.py` and added `main.py` in commit `639f6bc`, without changing a test file. `claims.py` now owns the stored time format and raises `ClaimError` for a time that is not naive UTC. `main.py` has only `resolve_now` so far, which picks `--now` or the real clock and returns naive UTC.
+- Updated the Time decision and the planned tests in `PLAN.md`.
+
+**What the agent got wrong, and what was corrected**
+
+- The agent's first report contradicted the brief. It proposed building the `CHECK` constraints from the `claims.py` constants, which reverses the dependency in the brief's diagram and hides the constraints that F4 grades, even though the brief fixes those lists. It also proposed a separate time module, but the brief gives picking the clock to `main.py` and all rules to `claims.py`. I told it to check against the brief, and it dropped the `CHECK` idea and moved the fix into the two existing files.
+- The first report also rated the race fix too highly. After the check, it downgraded that work to Speculative, because the brief never mentions simultaneous writers and no rubric line covers it.
+
+**My decision, and what it does not cover**
+
+- I decided to pursue the desk time issue to fix the possible race condition.
+- The agent told me this fix does not close that race, because the two problems are separate. It re-ran the forced timing after commit `639f6bc`, and one claim still got two `open` to `assigned` history rows. The race is still open.
+
+**What I checked**
+
+- I had the agent check its findings against the brief before any code changed.
+- With the fix in place, the agent ran the tests and lint: `.venv/bin/python -m pytest` gave `106 passed`, and `.venv/bin/ruff check` gave `All checks passed!`. I still need to read the diff and run these myself before opening the pull request.
+
