@@ -127,3 +127,39 @@ The work followed the plan in `PLAN.md` and Linear issue NAT-6, so the prompts w
 - I read through `claims.py`, and everything looked good.
 - I got a second opinion from a reviewer agent, which revealed the small gaps in scope listed above.
 
+### feature/deadlines-and-escalation
+
+**Prompts I gave**
+
+The work followed the plan in `PLAN.md` and Linear issue NAT-7, so the prompts were short:
+
+1. Tests: "Yes, write the tests", then "Yes, commit tests" after reviewing them.
+2. Feature code: "Yes, implement it", then "Yes, commit it" after reviewing the diff.
+3. Review: `/code-review every commit since the last pr`
+4. Batch test: "Add the test"
+
+**What the agent did**
+
+- Created the branch and the `.tdd-red` marker, then wrote `tests/test_escalation.py` (11 test functions, 19 cases). They include the deadline edge: one minute before, exactly at, and one minute after.
+- Ran `pytest` before any feature code existed. All 19 cases failed with `AttributeError`, for the missing `is_overdue` and `escalate_overdue`, and that output is in the message of commit `db461b3`.
+- Removed `.tdd-red`, then added `is_overdue` and `escalate_overdue` to `claims.py` in commit `978414d` without changing a test file. All 88 cases passed and `ruff check` was clean.
+- Removed the transaction from `escalate_overdue` only, in a throwaway copy, to test the rollback test. The result was `1 failed, 87 passed`. `test_failed_history_write_leaves_every_claim_unchanged` failed with `AssertionError: assert 'escalated' == 'open'`. With the transaction in place, it passes. The temporary removal was never committed.
+- Filed a gold and a standard claim in a real database file. One minute past the gold deadline, only the gold claim escalated, and the result was still there after reopening the file.
+- The code review agent used `93ba43c`, the merge of PR #3, as the fixed point, and ran the Standards and Spec reviews in two separate sub-agents. They found no hard standards violations and no wrong behavior.
+- The Spec sub-agent moved `with conn:` inside the loop in a throwaway copy, and all 88 cases still passed. The existing rollback test fails every history write, so the first claim fails and the second is never attempted. No test protected "one transaction for the whole batch".
+- After my decision, the code review agent added `test_failed_history_write_on_a_later_claim_rolls_back_the_whole_batch` to `tests/test_escalation.py`, which makes this 12 test functions and 20 cases. Only the second claim's history write fails. `claims.py` did not change, so the test was never red against the real code. Its proof is the same throwaway change: `1 failed, 88 passed`, with the first claim `escalated` instead of `open`.
+
+**What the agent got wrong, and what was corrected**
+
+- The agent's first command to create the branch failed, because it ran `git rev-parse --short` with two revisions. The commands were chained, so no branch or marker was created. It confirmed that `main` matched `origin/main` another way, then created them.
+- The tests do not cover a reassigned overdue claim escalating again, which `PLAN.md` says should happen. The agent flagged this and offered a twelfth test, and I committed the 11 as they were. It then checked this path in the real database file. The history was `open`, `escalated`, `assigned`, `escalated`, with `system` recording both escalations.
+- The agent's first 11 tests left the batch transaction unprotected, as `/code-review` showed. I decided to add a test for it on this branch, before opening the pull request. This goes beyond the 11 planned tests, and it changes a test file on this branch only.
+- `/code-review` also made suggestions that are not applied: deriving the `escalate_overdue` status filter from `ALLOWED_CHANGES`, moving or rewording around the `SELECT` that runs before `with conn:`, and small naming and duplication cleanups in `tests/test_escalation.py`.
+
+**What I checked**
+
+- I reviewed the tests before committing them and the diff before committing the feature code. I then ran `/code-review` on every commit since the last pull request, which confirmed the test-first order and that no earlier test file or `conftest.py` changed.
+- With the batch test in place, the agent ran the tests and lint for me: `.venv/bin/python -m pytest` gave `89 passed in 0.04s`, `tests/test_escalation.py` alone gave `20 passed in 0.02s`, and `.venv/bin/ruff check` gave `All checks passed!`.
+- I kept both choices the agent made where the plan did not settle them, by committing the tests as written: `escalate_overdue` returns ids in ascending order, and `is_overdue` takes a claim row.
+- I decided to add the batch transaction test, because the rule held only in the code and nothing would have caught a regression.
+
