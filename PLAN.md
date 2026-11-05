@@ -139,7 +139,7 @@ The rubric expects exactly four pull requests, so setup goes directly on `main`.
 
 ## Branches and planned tests
 
-Planned: 62 test functions against a minimum of 20. Parametrized tests count as more.
+Planned: 64 test functions against a minimum of 20. Parametrized tests count as more.
 
 ### 1. `feature/schema-and-filing`: `tests/test_claims.py` (planned 15)
 
@@ -204,7 +204,7 @@ difference: with `with conn:` the status stays `open`, and without it the same c
 `assigned`. Before merging, delete the transaction, watch the test fail, restore it, and put the
 result in the **Agent Log**.
 
-### 4. `feature/cli`: `tests/test_cli.py` (minimum 3, planned 23)
+### 4. `feature/cli`: `tests/test_cli.py` (minimum 3, planned 25)
 
 Also adds `seed_claims.csv`, with at least 10 claims across all types and tiers, including the exact
 hidden instruction note. Rule code stays in `claims.py`, so `main.py` is thin.
@@ -214,8 +214,8 @@ hidden instruction note. Rule code stays in `claims.py`, so `main.py` is thin.
 3. A rule error prints a clear message to stderr, exits 1, and saves nothing
 4. `--now` before the command sets the filed time, and `escalate` reports the overdue ids
 5. A bad `--now` value is a clear error
-6. `seed seed_claims.csv` loads the file, the hidden instruction note comes back unchanged, and a
-   file with a bad row loads nothing
+6. `seed seed_claims.csv` loads the file, which has the required columns, at least 10 claims, and all
+   types and tiers, and the hidden instruction note comes back unchanged
 7. `claims.py` contains no clock call such as `datetime.now`
 
 Added after the architecture review, for the time rule:
@@ -244,6 +244,12 @@ Added for gaps found in review:
 22. Assign, resolve, and close reject a blank or missing "who made the change", and save nothing
     (parametrized)
 23. `list_claims` rejects an unknown status or tier (parametrized)
+
+Split out from tests 5 and 6 when the command tests were written:
+
+24. Filing through the command line at a time with no valid deadline is a clear error
+25. `seed` with a bad row, a missing column, or a missing file is a clear error and loads nothing
+    (parametrized)
 
 This branch also holds the final evidence, because it is the last pull request:
 
