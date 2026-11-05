@@ -165,13 +165,14 @@ The work followed the plan in `PLAN.md` and Linear issue NAT-7, so the prompts w
 
 ### feature/cli
 
-This entry covers the desk time fix so far. The commands and `seed` are still to come on this branch.
+This entry covers the desk time fix and the race fix so far. The commands and `seed` are still to come on this branch.
 
 **Prompts I gave**
 
 1. Review: `/anthropic-skills:improve-codebase-architecture`
 2. Check: "first, make sure your findings dont contradict the project reqs", with the lab brief attached.
 3. Fix: "Lets implement the desk time fix along with the PLAN.md update. Make sure your changes reflect in the agent log in the readme. Include my decision to pursue the desk issue to fix the possible race condition"
+4. Race: "Fix the race too"
 
 **What the agent did**
 
@@ -180,19 +181,23 @@ This entry covers the desk time fix so far. The commands and `seed` are still to
 - Created this branch from the updated `main`, then wrote `tests/test_cli.py` (9 test functions, 17 cases). All 17 failed before any feature code existed, with `8 failed, 9 errors`, and that output is in the message of commit `0ffc3fa`. The agent did not use the `.tdd-red` marker, and it did not stop for my review between the tests and the feature code.
 - Changed `claims.py` and added `main.py` in commit `639f6bc`, without changing a test file. `claims.py` now owns the stored time format and raises `ClaimError` for a time that is not naive UTC. `main.py` has only `resolve_now` so far, which picks `--now` or the real clock and returns naive UTC.
 - Updated the Time decision and the planned tests in `PLAN.md`.
+- For the race, added 2 test functions (4 cases) to `tests/test_cli.py`. A second connection changes the claim just before the first connection's update. All 4 cases failed with `DID NOT RAISE ClaimError` before the fix (`4 failed, 17 passed`), and that output is in the message of commit `b516f6d`. These tests add to `tests/test_cli.py` on this branch, and no earlier test changed.
+- Fixed the race in commit `2345126`, without changing a test file. The status update now also matches the old status, so only the first writer changes the claim. The other writer gets a `ClaimError` and nothing is saved. An `escalate` batch that loses a race saves nothing and can be run again.
+- Left `with conn:` where it was, then repeated the rollback proof. With every transaction removed in a throwaway copy, the result was `15 failed, 95 passed`, including the rollback tests in `tests/test_status.py` and `tests/test_escalation.py`. The removal was never committed.
 
 **What the agent got wrong, and what was corrected**
 
 - The agent's first report contradicted the brief. It proposed building the `CHECK` constraints from the `claims.py` constants, which reverses the dependency in the brief's diagram and hides the constraints that F4 grades, even though the brief fixes those lists. It also proposed a separate time module, but the brief gives picking the clock to `main.py` and all rules to `claims.py`. I told it to check against the brief, and it dropped the `CHECK` idea and moved the fix into the two existing files.
 - The first report also rated the race fix too highly. After the check, it downgraded that work to Speculative, because the brief never mentions simultaneous writers and no rubric line covers it.
 
-**My decision, and what it does not cover**
+**My decisions**
 
 - I decided to pursue the desk time issue to fix the possible race condition.
-- The agent told me this fix does not close that race, because the two problems are separate. It re-ran the forced timing after commit `639f6bc`, and one claim still got two `open` to `assigned` history rows. The race is still open.
+- The agent told me the desk time fix did not close that race, because the two problems are separate. It re-ran the forced timing after commit `639f6bc`, and one claim still got two `open` to `assigned` history rows.
+- The agent recommended leaving the race open, and I decided to fix it on this branch anyway. After the fix, the same forced timing gives `ClaimError: Claim 1 changed during this update. Nothing was saved.`
 
 **What I checked**
 
 - I had the agent check its findings against the brief before any code changed.
-- With the fix in place, the agent ran the tests and lint: `.venv/bin/python -m pytest` gave `106 passed`, and `.venv/bin/ruff check` gave `All checks passed!`. I still need to read the diff and run these myself before opening the pull request.
+- With the fix in place, the agent ran the tests and lint: `.venv/bin/python -m pytest` gave `110 passed`, and `.venv/bin/ruff check` gave `All checks passed!`. I still need to read the diff and run these myself before opening the pull request.
 
