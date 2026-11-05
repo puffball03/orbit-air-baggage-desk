@@ -31,24 +31,36 @@ def _validate_new_claim(passenger, flight, claim_type, tier):
         raise ClaimError(f"Unknown tier '{tier}'. Allowed: {allowed}.")
 
 
+def _require_naive_utc(moment):
+    if not isinstance(moment, datetime) or moment.utcoffset() is not None:
+        raise ClaimError(f"Time must be a naive UTC datetime, not {moment!r}.")
+
+
+def _to_stored(moment):
+    """Every time saved goes through here, so a wrong-form time never reaches a row."""
+    _require_naive_utc(moment)
+    return moment.isoformat()
+
+
 def _insert_history(conn, claim_id, old_status, new_status, changed_by, now):
     conn.execute(
         """
         INSERT INTO history (claim_id, old_status, new_status, changed_by, changed_at)
         VALUES (?, ?, ?, ?, ?)
         """,
-        (claim_id, old_status, new_status, changed_by, now.isoformat()),
+        (claim_id, old_status, new_status, changed_by, _to_stored(now)),
     )
 
 
 def _insert_claim(conn, passenger, flight, claim_type, tier, note, changed_by, now):
-    deadline = now + timedelta(hours=DEADLINE_HOURS[tier])
+    filed_at = _to_stored(now)
+    deadline = _to_stored(now + timedelta(hours=DEADLINE_HOURS[tier]))
     cursor = conn.execute(
         """
         INSERT INTO claims (passenger, flight, type, tier, status, note, filed_at, deadline)
         VALUES (?, ?, ?, ?, 'open', ?, ?, ?)
         """,
-        (passenger, flight, claim_type, tier, note, now.isoformat(), deadline.isoformat()),
+        (passenger, flight, claim_type, tier, note, filed_at, deadline),
     )
     claim_id = cursor.lastrowid
     _insert_history(conn, claim_id, None, "open", changed_by, now)
@@ -124,6 +136,7 @@ def get_history(conn, claim_id):
 
 
 def is_overdue(claim, now):
+    _require_naive_utc(now)
     return now > datetime.fromisoformat(claim["deadline"])
 
 
