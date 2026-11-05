@@ -1,8 +1,10 @@
+import sqlite3
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 import claims
+import db
 
 AWARE_LATER = datetime(2026, 12, 2, 14, 0, 0, tzinfo=UTC)
 ACTIONS = {
@@ -118,3 +120,73 @@ def test_a_converted_offset_time_can_file_and_escalate(conn, make_claim, resolve
 
     assert get_claim(conn, claim_id)["filed_at"] == "2026-11-02T14:00:00"
     assert claims.escalate_overdue(conn, resolve_now("2026-11-02T18:01:00Z")) == [claim_id]
+
+
+class LosesTheRace(sqlite3.Connection):
+    """Runs another writer's change just before this connection's first claim update."""
+
+    before_claim_update = None
+
+    def execute(self, sql, *args):
+        if self.before_claim_update and sql.lstrip().startswith("UPDATE claims"):
+            other_writer, self.before_claim_update = self.before_claim_update, None
+            other_writer()
+        return super().execute(sql, *args)
+
+
+@pytest.fixture
+def writers(tmp_path):
+    """Two connections to one database file. The second loses any race."""
+    path = tmp_path / "race.db"
+    winner = db.connect(path)
+    db.init_db(winner)
+    loser = sqlite3.connect(path, factory=LosesTheRace)
+    loser.row_factory = sqlite3.Row
+    yield winner, loser
+    winner.close()
+    loser.close()
+
+
+def history_to(conn, claim_id, status):
+    return conn.execute(
+        "SELECT COUNT(*) FROM history WHERE claim_id = ? AND new_status = ?", (claim_id, status)
+    ).fetchone()[0]
+
+
+@pytest.mark.parametrize(
+    ("action", "earlier_actions", "status"),
+    [
+        ("assign", [], "assigned"),
+        ("resolve", ["assign"], "resolved"),
+        ("close", ["assign", "resolve"], "closed"),
+    ],
+)
+def test_losing_a_race_for_a_status_change_is_rejected_and_saves_nothing(
+    writers, now, action, earlier_actions, status
+):
+    winner, loser = writers
+    claim_id = claims.file_claim(winner, "Ada Lovelace", "OA101", "lost", "gold", "desk", now)
+    for earlier in earlier_actions:
+        ACTIONS[earlier](winner, claim_id, now)
+    loser.before_claim_update = lambda: ACTIONS[action](winner, claim_id, now)
+
+    with pytest.raises(claims.ClaimError, match="changed"):
+        ACTIONS[action](loser, claim_id, now)
+
+    assert loser.in_transaction is False
+    assert get_claim(winner, claim_id)["status"] == status
+    assert history_to(winner, claim_id, status) == 1
+
+
+def test_losing_a_race_during_escalation_saves_nothing_and_a_rerun_works(writers, now):
+    winner, loser = writers
+    claim_id = claims.file_claim(winner, "Ada Lovelace", "OA101", "lost", "gold", "desk", now)
+    later = now + timedelta(days=30)
+    loser.before_claim_update = lambda: ACTIONS["assign"](winner, claim_id, now)
+
+    with pytest.raises(claims.ClaimError, match="changed"):
+        claims.escalate_overdue(loser, later)
+
+    assert get_claim(winner, claim_id)["status"] == "assigned"
+    assert history_to(winner, claim_id, "escalated") == 0
+    assert claims.escalate_overdue(winner, later) == [claim_id]
