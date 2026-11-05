@@ -2,17 +2,27 @@ from datetime import timedelta
 
 CLAIM_TYPES = ("delayed", "lost", "damaged")
 DEADLINE_HOURS = {"gold": 4, "silver": 24, "standard": 72}
+ALLOWED_CHANGES = {
+    "open": ("assigned", "escalated"),
+    "assigned": ("resolved", "escalated"),
+    "escalated": ("assigned", "resolved"),
+    "resolved": ("closed",),
+    "closed": (),
+}
 
 
 class ClaimError(Exception):
     """A claim rule was broken. The message is safe to show to the user."""
 
 
+def _require_not_blank(value, label):
+    if not value or not value.strip():
+        raise ClaimError(f"{label} cannot be blank.")
+
+
 def _validate_new_claim(passenger, flight, claim_type, tier):
-    if not passenger or not passenger.strip():
-        raise ClaimError("Passenger name cannot be blank.")
-    if not flight or not flight.strip():
-        raise ClaimError("Flight number cannot be blank.")
+    _require_not_blank(passenger, "Passenger name")
+    _require_not_blank(flight, "Flight number")
     if claim_type not in CLAIM_TYPES:
         allowed = ", ".join(CLAIM_TYPES)
         raise ClaimError(f"Unknown claim type '{claim_type}'. Allowed: {allowed}.")
@@ -67,3 +77,47 @@ def list_claims(conn, status=None, tier=None):
         query += " WHERE " + " AND ".join(conditions)
     query += " ORDER BY id"
     return conn.execute(query, params).fetchall()
+
+
+def _require_claim(conn, claim_id):
+    row = conn.execute("SELECT * FROM claims WHERE id = ?", (claim_id,)).fetchone()
+    if row is None:
+        raise ClaimError(f"Claim {claim_id} does not exist.")
+    return row
+
+
+def _change_status(conn, claim_id, new_status, changed_by, now):
+    """Check and write one status change. The caller owns the transaction."""
+    old_status = _require_claim(conn, claim_id)["status"]
+    if new_status not in ALLOWED_CHANGES[old_status]:
+        raise ClaimError(f"Cannot change claim {claim_id} from {old_status} to {new_status}.")
+    conn.execute("UPDATE claims SET status = ? WHERE id = ?", (new_status, claim_id))
+    _insert_history(conn, claim_id, old_status, new_status, changed_by, now)
+
+
+def _set_agent(conn, claim_id, agent):
+    conn.execute("UPDATE claims SET assigned_agent = ? WHERE id = ?", (agent, claim_id))
+
+
+def assign_claim(conn, claim_id, agent, changed_by, now):
+    _require_not_blank(agent, "Agent name")
+    with conn:
+        _change_status(conn, claim_id, "assigned", changed_by, now)
+        _set_agent(conn, claim_id, agent)
+
+
+def resolve_claim(conn, claim_id, changed_by, now):
+    with conn:
+        _change_status(conn, claim_id, "resolved", changed_by, now)
+
+
+def close_claim(conn, claim_id, changed_by, now):
+    with conn:
+        _change_status(conn, claim_id, "closed", changed_by, now)
+
+
+def get_history(conn, claim_id):
+    _require_claim(conn, claim_id)
+    return conn.execute(
+        "SELECT * FROM history WHERE claim_id = ? ORDER BY id", (claim_id,)
+    ).fetchall()
