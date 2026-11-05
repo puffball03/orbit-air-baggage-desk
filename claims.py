@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 CLAIM_TYPES = ("delayed", "lost", "damaged")
 DEADLINE_HOURS = {"gold": 4, "silver": 24, "standard": 72}
@@ -121,3 +121,19 @@ def get_history(conn, claim_id):
     return conn.execute(
         "SELECT * FROM history WHERE claim_id = ? ORDER BY id", (claim_id,)
     ).fetchall()
+
+
+def is_overdue(claim, now):
+    return now > datetime.fromisoformat(claim["deadline"])
+
+
+def escalate_overdue(conn, now):
+    """Escalate every overdue open or assigned claim in one transaction. Returns their ids."""
+    candidates = conn.execute(
+        "SELECT * FROM claims WHERE status IN ('open', 'assigned') ORDER BY id"
+    ).fetchall()
+    overdue_ids = [claim["id"] for claim in candidates if is_overdue(claim, now)]
+    with conn:
+        for claim_id in overdue_ids:
+            _change_status(conn, claim_id, "escalated", "system", now)
+    return overdue_ids
