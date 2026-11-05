@@ -78,6 +78,29 @@ def file_claim(conn, passenger, flight, claim_type, tier, changed_by, now, note=
         return _insert_claim(conn, passenger, flight, claim_type, tier, note, changed_by, now)
 
 
+def seed_claims(conn, rows, now):
+    """Validate every row, then save them all in one transaction. Returns the new ids."""
+    for number, row in enumerate(rows, start=1):
+        try:
+            _validate_new_claim(row["passenger"], row["flight"], row["type"], row["tier"])
+        except ClaimError as error:
+            raise ClaimError(f"Seed row {number}: {error}") from None
+    with conn:
+        return [
+            _insert_claim(
+                conn,
+                row["passenger"],
+                row["flight"],
+                row["type"],
+                row["tier"],
+                row["note"] or None,
+                "seed",
+                now,
+            )
+            for row in rows
+        ]
+
+
 def list_claims(conn, status=None, tier=None):
     conditions = []
     params = []
