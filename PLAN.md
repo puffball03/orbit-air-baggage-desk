@@ -139,7 +139,7 @@ The rubric expects exactly four pull requests, so setup goes directly on `main`.
 
 ## Branches and planned tests
 
-Planned: 64 test functions against a minimum of 20. Parametrized tests count as more.
+Planned: 67 test functions against a minimum of 20. Parametrized tests count as more.
 
 ### 1. `feature/schema-and-filing`: `tests/test_claims.py` (planned 15)
 
@@ -204,7 +204,7 @@ difference: with `with conn:` the status stays `open`, and without it the same c
 `assigned`. Before merging, delete the transaction, watch the test fail, restore it, and put the
 result in the **Agent Log**.
 
-### 4. `feature/cli`: `tests/test_cli.py` (minimum 3, planned 25)
+### 4. `feature/cli`: `tests/test_cli.py` (minimum 3, planned 28)
 
 Also adds `seed_claims.csv`, with at least 10 claims across all types and tiers, including the exact
 hidden instruction note. Rule code stays in `claims.py`, so `main.py` is thin.
@@ -250,6 +250,12 @@ Split out from tests 5 and 6 when the command tests were written:
 24. Filing through the command line at a time with no valid deadline is a clear error
 25. `seed` with a bad row, a missing column, or a missing file is a clear error and loads nothing
     (parametrized)
+
+Added for `/code-review` findings on this branch:
+
+26. A seed row with too many or too few fields names the row and loads nothing (parametrized)
+27. `seed_claims` checks the columns itself, so `main.py` holds no seed rule (parametrized)
+28. A database failure is a clear error, not a traceback
 
 This branch also holds the final evidence, because it is the last pull request:
 

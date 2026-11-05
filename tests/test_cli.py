@@ -465,3 +465,57 @@ def test_only_main_reads_the_clock():
 
     for name in ("claims.py", "db.py"):
         assert not clock_call.search((REPO / name).read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize(
+    ("contents", "message"),
+    [
+        (
+            "passenger,flight,type,tier,note\nAna,OA1,lost,gold,Zip torn, contents bagged\n",
+            "row 1",
+        ),
+        ("passenger,flight,type,tier,note\nAna,OA1,lost,gold,\nBen,OA2\n", "row 2"),
+    ],
+    ids=["extra_field", "short_row"],
+)
+def test_seed_row_with_the_wrong_number_of_fields_loads_nothing(
+    run, rows, tmp_path, contents, message
+):
+    (tmp_path / "claims.csv").write_text(contents, encoding="utf-8")
+
+    result = run("seed", "claims.csv")
+
+    assert_clean_error(result, message)
+    assert "None" not in result.stderr
+    assert rows("claims") == []
+
+
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        ({"passenger": "Ana", "flight": "OA1", "type": "lost", "note": ""}, "tier"),
+        (
+            {
+                "passenger": "Ana",
+                "flight": "OA1",
+                "type": "lost",
+                "tier": "gold",
+                "note": "Zip",
+                None: [" torn"],
+            },
+            "row 1",
+        ),
+    ],
+    ids=["missing_column", "extra_field"],
+)
+def test_seed_claims_checks_the_columns_itself(conn, now, row, message):
+    with pytest.raises(claims.ClaimError, match=message):
+        claims.seed_claims(conn, [row], now)
+
+    assert conn.execute("SELECT COUNT(*) FROM claims").fetchone()[0] == 0
+
+
+def test_database_failure_is_a_clear_error(run, tmp_path):
+    (tmp_path / "baggage.db").mkdir()
+
+    assert_clean_error(run("list"), "baggage.db")
