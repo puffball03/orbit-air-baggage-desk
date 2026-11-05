@@ -167,3 +167,29 @@ def test_failed_history_write_leaves_every_claim_unchanged(
     assert get_claim(conn, open_id)["status"] == "open"
     assert get_claim(conn, assigned_id)["status"] == "assigned"
     assert get_claim(conn, assigned_id)["assigned_agent"] == "Marco"
+
+
+def test_failed_history_write_on_a_later_claim_rolls_back_the_whole_batch(
+    conn, gold_claim_in, overdue_time
+):
+    first_id = gold_claim_in("open")
+    second_id = gold_claim_in("open")
+    first_entries_before = len(history_rows(conn, first_id))
+    # Only the second claim fails, so the first has already been written. This
+    # test fails if each claim gets its own transaction instead of the batch.
+    conn.execute(
+        f"""
+        CREATE TRIGGER fail_second_history_write BEFORE INSERT ON history
+        WHEN NEW.claim_id = {second_id}
+        BEGIN
+            SELECT RAISE(ABORT, 'forced history failure');
+        END
+        """
+    )
+
+    with pytest.raises(sqlite3.Error):
+        claims.escalate_overdue(conn, overdue_time)
+
+    assert get_claim(conn, first_id)["status"] == "open"
+    assert get_claim(conn, second_id)["status"] == "open"
+    assert len(history_rows(conn, first_id)) == first_entries_before
