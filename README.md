@@ -88,3 +88,42 @@ The work followed the plan in `PLAN.md` and Linear issue NAT-5, so the prompts w
 - I then personally ran each test to confirm agent output
 - `/code-review` also found that `list_claims` returns an empty list for an unknown status or tier instead of raising an error. I am leaving this for `feature/cli`, where it will start with a failing test in `tests/test_cli.py`.
 
+### feature/assign-and-status
+
+**Prompts I gave**
+
+The work followed the plan in `PLAN.md` and Linear issue NAT-6, so the prompts were short:
+
+1. Tests: "Yes, write the tests", then "Yes, commit as is" after reviewing them.
+2. Duplicates: "Im noticing some similar helper functions in test claims. Can we check for redundancies?"
+3. Feature code: "Yes, implement it"
+4. Review: `/code-review` with no fixed point. When the agent asked what to compare against, I chose `main` plus the uncommitted changes. After reading the report, "Make the tidy-ups", then "Commit the working tree changes with a sensible message."
+5. Spec check: "I hade a code review agent make some changes first. Please make sure everything still aligns with spec"
+
+**What the agent did**
+
+- Created the branch and the `.tdd-red` marker, then wrote `tests/test_status.py` (12 test functions, 34 cases).
+- Ran `pytest` before any feature code existed. All 34 cases failed with `AttributeError`, such as `module 'claims' has no attribute 'assign_claim'`, and that output is in the message of commit `0a63575`.
+- Removed `.tdd-red`, then added `ALLOWED_CHANGES`, a private transition helper, `assign_claim`, `resolve_claim`, `close_claim`, and `get_history` to `claims.py` without changing a test file. All 69 cases passed and `ruff check` was clean.
+- Removed the transactions in a throwaway copy to test the rollback tests. The result was `6 failed, 63 passed`: the 5 new rollback cases and the filing rollback test from the last branch.
+- The code review agent pointed out that a commits-only diff against `main` would miss the feature code, because `claims.py` was still uncommitted. It then ran the Standards and Spec reviews in two separate sub-agents. They found no hard standards violations and no spec defects, and reported 4 judgement calls and 2 gaps the spec does not settle.
+- The Spec sub-agent tried all 15 status and action combinations: only the 5 allowed ones succeeded, and each rejection left history unchanged. With the transactions removed in a throwaway copy, `tests/test_status.py` gave `5 failed, 29 passed`, and all 5 failures were rollback cases.
+- The code review agent made 3 of the 4 suggested tidy-ups, got `69 passed` and a clean `ruff check`, and committed `13daabc`. It moved NAT-16, NAT-17, and NAT-18 to Done with a comment naming the commit, and left NAT-6 In Progress.
+- After the code review agent's changes, reran the tests, the lint, and the rollback check, and got the same results. It also compared `ALLOWED_CHANGES` to the table in the brief, and ran a claim from filing to closed in a real database file. After reopening the file, the claim was `closed` with its agent and all 4 history entries.
+
+**What the agent got wrong, and what was corrected**
+
+- The plan listed 6 disallowed changes. The agent wrote 9 so that, with the separate test for assigning an assigned claim, every disallowed assign, resolve, or close is covered. This added `resolve resolved`, `close assigned`, and `close escalated`. I agreed with the 9 tests, because they cover more edge cases.
+- I noticed similar helpers in the two test files. The agent confirmed that `get_claim` is an exact duplicate. I kept it, because moving it to `conftest.py` would change test files that were already merged, and `PLAN.md` says later helpers stay in their own test file. I also kept the small overlap between the assigned claim test and the disallowed changes test, so the tests still match the plan.
+- During the spec check, the agent's own `git` check included a `grep` on the name `.env`, and the Bash deny rule blocked that command. It reran the other checks without that `grep` and did not read `.env`.
+- A code review agent made three refactors in `claims.py`: a shared `_require_not_blank` check, `_require_claim` in place of `_get_status`, and a private `_set_agent`. No behavior or error message changed. The result is commit `13daabc`.
+- The code review agent did not make the fourth suggestion, bundling `changed_by` and `now`. The tests fix the public signatures, so a new type could only cover the private helpers.
+- `/code-review` also found two gaps that are not fixed. `assign_claim` stores the agent unstripped, so `'  P  '` is saved as is, which matches how `file_claim` treats passenger and flight. `changed_by` is not validated: `''` is accepted, and `None` raises `sqlite3.IntegrityError` instead of `ClaimError`, though it rolls back cleanly. The plan's blank value rule does not name `changed_by`, and `--by` defaults to `desk`.
+- I am leaving the unstripped agent name, because it matches how passenger and flight are saved. I am leaving the `changed_by` check for `feature/cli`, where it will start with a failing test in `tests/test_cli.py`.
+
+**What I checked**
+
+- I ran `pytest` and `ruff check` myself to confirm the results on my end: `69 passed`, and `ruff check` passed.
+- I read through `claims.py`, and everything looked good.
+- I got a second opinion from a reviewer agent, which revealed the small gaps in scope listed above.
+
