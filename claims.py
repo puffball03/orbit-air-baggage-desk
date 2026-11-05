@@ -43,6 +43,7 @@ def _to_stored(moment):
 
 
 def _insert_history(conn, claim_id, old_status, new_status, changed_by, now):
+    _require_not_blank(changed_by, "Changed by")
     conn.execute(
         """
         INSERT INTO history (claim_id, old_status, new_status, changed_by, changed_at)
@@ -54,7 +55,10 @@ def _insert_history(conn, claim_id, old_status, new_status, changed_by, now):
 
 def _insert_claim(conn, passenger, flight, claim_type, tier, note, changed_by, now):
     filed_at = _to_stored(now)
-    deadline = _to_stored(now + timedelta(hours=DEADLINE_HOURS[tier]))
+    try:
+        deadline = _to_stored(now + timedelta(hours=DEADLINE_HOURS[tier]))
+    except OverflowError:
+        raise ClaimError(f"The deadline for a claim filed at {filed_at} is out of range.") from None
     cursor = conn.execute(
         """
         INSERT INTO claims (passenger, flight, type, tier, status, note, filed_at, deadline)
@@ -78,9 +82,15 @@ def list_claims(conn, status=None, tier=None):
     conditions = []
     params = []
     if status is not None:
+        if status not in ALLOWED_CHANGES:
+            allowed = ", ".join(ALLOWED_CHANGES)
+            raise ClaimError(f"Unknown status '{status}'. Allowed: {allowed}.")
         conditions.append("status = ?")
         params.append(status)
     if tier is not None:
+        if tier not in DEADLINE_HOURS:
+            allowed = ", ".join(DEADLINE_HOURS)
+            raise ClaimError(f"Unknown tier '{tier}'. Allowed: {allowed}.")
         conditions.append("tier = ?")
         params.append(tier)
 

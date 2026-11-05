@@ -13,5 +13,8 @@ def resolve_now(value=None):
         except ValueError:
             raise ClaimError(f"--now must be an ISO timestamp, not '{value}'.") from None
     if moment.utcoffset() is not None:
-        moment = moment.astimezone(UTC).replace(tzinfo=None)
+        try:
+            moment = moment.astimezone(UTC).replace(tzinfo=None)
+        except OverflowError:
+            raise ClaimError(f"--now is out of range: '{value}'.") from None
     return moment
