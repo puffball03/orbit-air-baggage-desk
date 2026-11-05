@@ -190,3 +190,60 @@ def test_losing_a_race_during_escalation_saves_nothing_and_a_rerun_works(writers
     assert get_claim(winner, claim_id)["status"] == "assigned"
     assert history_to(winner, claim_id, "escalated") == 0
     assert claims.escalate_overdue(winner, later) == [claim_id]
+
+
+@pytest.mark.parametrize("value", ["0001-01-01T00:00:00+14:00", "9999-12-31T23:59:59-14:00"])
+def test_resolve_now_rejects_a_value_that_cannot_convert_to_utc(resolve_now, value):
+    with pytest.raises(claims.ClaimError, match="--now"):
+        resolve_now(value)
+
+
+def test_filing_rejects_a_time_whose_deadline_is_out_of_range(conn, make_claim):
+    with pytest.raises(claims.ClaimError, match="(?i)deadline"):
+        make_claim(tier="gold", now=datetime(9999, 12, 31, 23, 0, 0))
+
+    assert conn.execute("SELECT COUNT(*) FROM claims").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM history").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("changed_by", ["", "   ", None])
+def test_filing_rejects_a_blank_changed_by_and_saves_nothing(conn, make_claim, changed_by):
+    with pytest.raises(claims.ClaimError, match="(?i)changed"):
+        make_claim(changed_by=changed_by)
+
+    assert conn.execute("SELECT COUNT(*) FROM claims").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM history").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("changed_by", ["", "   ", None])
+@pytest.mark.parametrize(
+    ("call", "earlier_actions", "status"),
+    [
+        (lambda c, i, by, at: claims.assign_claim(c, i, "Priya", by, at), [], "open"),
+        (lambda c, i, by, at: claims.resolve_claim(c, i, by, at), ["assign"], "assigned"),
+        (lambda c, i, by, at: claims.close_claim(c, i, by, at), ["assign", "resolve"], "resolved"),
+    ],
+    ids=["assign", "resolve", "close"],
+)
+def test_status_change_rejects_a_blank_changed_by_and_saves_nothing(
+    conn, make_claim, now, call, earlier_actions, status, changed_by
+):
+    claim_id = make_claim()
+    for earlier in earlier_actions:
+        ACTIONS[earlier](conn, claim_id, now)
+    entries_before = history_count(conn, claim_id)
+
+    with pytest.raises(claims.ClaimError, match="(?i)changed"):
+        call(conn, claim_id, changed_by, now)
+
+    assert get_claim(conn, claim_id)["status"] == status
+    assert history_count(conn, claim_id) == entries_before
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("status", "archived"), ("status", "OPEN"), ("tier", "platinum"), ("tier", "GOLD")],
+)
+def test_list_claims_rejects_an_unknown_status_or_tier(conn, field, value):
+    with pytest.raises(claims.ClaimError, match=f"(?i){field}"):
+        claims.list_claims(conn, **{field: value})
