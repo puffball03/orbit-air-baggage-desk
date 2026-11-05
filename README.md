@@ -16,6 +16,72 @@ python3.12 -m venv .venv
 .venv/bin/ruff check
 ```
 
+## Run
+
+Activate the virtual environment, then run `python main.py` followed by a command:
+
+```bash
+source .venv/bin/activate
+python main.py --help
+```
+
+The app keeps its data in `baggage.db` in the current folder and creates it on first use. To start over, delete that file.
+
+Two options go before the command name:
+
+- `--now` takes an ISO timestamp and is used instead of the real clock. A time with no offset is treated as UTC, and a time with an offset is converted to UTC.
+- `--by` says who is making the change. The default is `desk`. `escalate` always records `system`, and `seed` always records `seed`.
+
+## Command Walkthrough
+
+File a claim, and list it. `--note` is optional, and `list` can filter by `--status`, `--tier`, or both:
+
+```console
+$ python main.py --now 2026-11-02T14:00:00 --by Dana file --passenger "Ada Lovelace" --flight OA101 --type lost --tier gold --note "Black suitcase"
+Filed claim 1.
+$ python main.py list --tier gold
+1 | Ada Lovelace | OA101 | lost | gold | open | - | due 2026-11-02T18:00:00 | Black suitcase
+```
+
+The `list` columns are id, passenger, flight, type, tier, status, agent, deadline, and note.
+
+Assign, resolve, and close the claim, and show its history. Each `history` line shows when, the old and new status, and who:
+
+```console
+$ python main.py --now 2026-11-02T14:30:00 --by Dana assign 1 Priya
+Assigned claim 1 to Priya.
+$ python main.py --now 2026-11-02T15:00:00 --by Priya resolve 1
+Resolved claim 1.
+$ python main.py --now 2026-11-02T15:30:00 --by Dana close 1
+Closed claim 1.
+$ python main.py history 1
+2026-11-02T14:00:00 | - -> open | Dana
+2026-11-02T14:30:00 | open -> assigned | Dana
+2026-11-02T15:00:00 | assigned -> resolved | Priya
+2026-11-02T15:30:00 | resolved -> closed | Dana
+```
+
+A change that the rules do not allow prints a clear error to stderr, exits with status 1, and saves nothing:
+
+```console
+$ python main.py close 1
+Cannot change claim 1 from closed to closed.
+```
+
+Load claims from a CSV file with the columns `passenger`, `flight`, `type`, `tier`, and `note`. The load is all or nothing, and an error names the bad row. Running it twice loads the claims twice:
+
+```console
+$ python main.py --now 2026-11-02T16:00:00 seed seed_claims.csv
+Loaded 12 claims from seed_claims.csv.
+$ python main.py list --status open --tier silver
+3 | Grace Hopper | OA202 | damaged | silver | open | - | due 2026-11-03T16:00:00 | Wheel snapped off during unloading
+8 | Edsger Dijkstra | OA606 | lost | silver | open | - | due 2026-11-03T16:00:00 | Green hard case with a fragile sticker
+9 | Barbara Liskov | OA707 | delayed | silver | open | - | due 2026-11-03T16:00:00 | -
+13 | Claude Shannon | OA303 | damaged | silver | open | - | due 2026-11-03T16:00:00 | Water damage along one side
+```
+
+`escalate` is shown under [Overdue Demonstration](#overdue-demonstration). Assigning a claim does not move its deadline, so a reassigned overdue claim escalates again on the next run.
+
 ## Linear Issues
 
 Project: [Orbit Air Baggage Desk](https://linear.app/natking/project/orbit-air-baggage-desk-5f28c44f6bd6)
@@ -163,6 +229,7 @@ The work followed the plan in `PLAN.md` and Linear issue NAT-7, so the prompts w
 - I kept both choices the agent made where the plan did not settle them, by committing the tests as written: `escalate_overdue` returns ids in ascending order, and `is_overdue` takes a claim row.
 - I decided to add the batch transaction test, because the rule held only in the code and nothing would have caught a regression.
 
+
 ### feature/cli
 
 This entry covers the desk time fix and the race fix so far. The commands and `seed` are still to come on this branch.
@@ -200,4 +267,68 @@ This entry covers the desk time fix and the race fix so far. The commands and `s
 
 - I had the agent check its findings against the brief before any code changed.
 - With the fix in place, the agent ran the tests and lint: `.venv/bin/python -m pytest` gave `110 passed`, and `.venv/bin/ruff check` gave `All checks passed!`. I still need to read the diff and run these myself before opening the pull request.
+
+## Overdue Demonstration
+
+This is real output from an empty folder. All four claims are filed at 14:00. Claims 1, 2, and 4 are gold, so their deadline is 18:00. Claim 3 is silver, so its deadline is 14:00 the next day. Claim 2 is assigned, and claim 4 is resolved before the deadline:
+
+```console
+$ python main.py --now 2026-11-02T14:00:00 file --passenger "Ada Lovelace" --flight OA101 --type lost --tier gold
+Filed claim 1.
+$ python main.py --now 2026-11-02T14:00:00 file --passenger "Grace Hopper" --flight OA202 --type damaged --tier gold
+Filed claim 2.
+$ python main.py --now 2026-11-02T14:00:00 file --passenger "Alan Turing" --flight OA303 --type delayed --tier silver
+Filed claim 3.
+$ python main.py --now 2026-11-02T14:00:00 file --passenger "Mary Jackson" --flight OA505 --type lost --tier gold
+Filed claim 4.
+$ python main.py --now 2026-11-02T14:30:00 assign 2 Priya
+Assigned claim 2 to Priya.
+$ python main.py --now 2026-11-02T15:00:00 assign 4 Marco
+Assigned claim 4 to Marco.
+$ python main.py --now 2026-11-02T16:00:00 resolve 4
+Resolved claim 4.
+```
+
+Exactly at the deadline, nothing is overdue. One minute later, the open claim and the assigned claim escalate:
+
+```console
+$ python main.py --now 2026-11-02T18:00:00 escalate
+No overdue claims to escalate.
+$ python main.py --now 2026-11-02T18:01:00 escalate
+Escalated claims: 1, 2.
+```
+
+The list of escalated claims. Claim 2 keeps its agent:
+
+```console
+$ python main.py list --status escalated
+1 | Ada Lovelace | OA101 | lost | gold | escalated | - | due 2026-11-02T18:00:00 | -
+2 | Grace Hopper | OA202 | damaged | gold | escalated | Priya | due 2026-11-02T18:00:00 | -
+```
+
+The silver claim is not yet overdue, and the resolved claim is left alone:
+
+```console
+$ python main.py list
+1 | Ada Lovelace | OA101 | lost | gold | escalated | - | due 2026-11-02T18:00:00 | -
+2 | Grace Hopper | OA202 | damaged | gold | escalated | Priya | due 2026-11-02T18:00:00 | -
+3 | Alan Turing | OA303 | delayed | silver | open | - | due 2026-11-03T14:00:00 | -
+4 | Mary Jackson | OA505 | lost | gold | resolved | Marco | due 2026-11-02T18:00:00 | -
+```
+
+The escalation is saved in the history, with `system` as who made the change:
+
+```console
+$ python main.py history 2
+2026-11-02T14:00:00 | - -> open | desk
+2026-11-02T14:30:00 | open -> assigned | desk
+2026-11-02T18:01:00 | assigned -> escalated | system
+```
+
+Running it again finds nothing new, because escalated claims are not escalated twice:
+
+```console
+$ python main.py --now 2026-11-02T18:02:00 escalate
+No overdue claims to escalate.
+```
 
