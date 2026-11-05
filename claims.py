@@ -103,7 +103,14 @@ def _change_status(conn, claim_id, new_status, changed_by, now):
     old_status = _require_claim(conn, claim_id)["status"]
     if new_status not in ALLOWED_CHANGES[old_status]:
         raise ClaimError(f"Cannot change claim {claim_id} from {old_status} to {new_status}.")
-    conn.execute("UPDATE claims SET status = ? WHERE id = ?", (new_status, claim_id))
+    # The status is read before the transaction starts, so another writer can get in first.
+    # Matching the old status here means only one of them changes the claim.
+    updated = conn.execute(
+        "UPDATE claims SET status = ? WHERE id = ? AND status = ?",
+        (new_status, claim_id, old_status),
+    )
+    if updated.rowcount == 0:
+        raise ClaimError(f"Claim {claim_id} changed during this update. Nothing was saved.")
     _insert_history(conn, claim_id, old_status, new_status, changed_by, now)
 
 
