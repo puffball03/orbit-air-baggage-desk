@@ -1,13 +1,12 @@
 import argparse
 import csv
+import sqlite3
 import sys
 from datetime import UTC, datetime
 
 import claims
 import db
 from claims import ClaimError
-
-SEED_COLUMNS = ("passenger", "flight", "type", "tier", "note")
 
 
 def resolve_now(value=None):
@@ -30,11 +29,7 @@ def resolve_now(value=None):
 def read_seed_rows(path):
     try:
         with open(path, newline="", encoding="utf-8-sig") as seed_file:
-            reader = csv.DictReader(seed_file)
-            missing = [name for name in SEED_COLUMNS if name not in (reader.fieldnames or [])]
-            if missing:
-                raise ClaimError(f"Seed file '{path}' is missing: {', '.join(missing)}.")
-            return list(reader)
+            return list(csv.DictReader(seed_file))
     except (OSError, UnicodeDecodeError, csv.Error) as error:
         raise ClaimError(f"Cannot read seed file '{path}': {error}") from None
 
@@ -149,6 +144,9 @@ def main(argv=None):
             conn.close()
     except ClaimError as error:
         print(error, file=sys.stderr)
+        return 1
+    except sqlite3.Error as error:
+        print(f"Database error in {db.DEFAULT_DB_PATH}: {error}", file=sys.stderr)
         return 1
     return 0
 

@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 CLAIM_TYPES = ("delayed", "lost", "damaged")
+SEED_COLUMNS = ("passenger", "flight", "type", "tier", "note")
 DEADLINE_HOURS = {"gold": 4, "silver": 24, "standard": 72}
 ALLOWED_CHANGES = {
     "open": ("assigned", "escalated"),
@@ -78,10 +79,22 @@ def file_claim(conn, passenger, flight, claim_type, tier, changed_by, now, note=
         return _insert_claim(conn, passenger, flight, claim_type, tier, note, changed_by, now)
 
 
+def _check_seed_columns(row):
+    missing = [name for name in SEED_COLUMNS if name not in row]
+    if missing:
+        raise ClaimError(f"Missing column: {', '.join(missing)}.")
+    # csv.DictReader puts extra fields under None, and fills missing ones with None.
+    if None in row:
+        raise ClaimError("Too many fields. Put quotes around a value that contains a comma.")
+    if any(row[name] is None for name in SEED_COLUMNS):
+        raise ClaimError("Too few fields.")
+
+
 def seed_claims(conn, rows, now):
     """Validate every row, then save them all in one transaction. Returns the new ids."""
     for number, row in enumerate(rows, start=1):
         try:
+            _check_seed_columns(row)
             _validate_new_claim(row["passenger"], row["flight"], row["type"], row["tier"])
         except ClaimError as error:
             raise ClaimError(f"Seed row {number}: {error}") from None
