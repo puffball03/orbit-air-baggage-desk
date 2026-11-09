@@ -290,7 +290,8 @@ This entry covers the whole branch: the desk time fix, the race fix, the review 
 - I had the agent check its findings against the brief before any code changed.
 - I had the agent review the branch against the spec and the plan, and I ran `/code-review` on every commit since PR #4.
 - I ran the Hidden Instruction Check myself in a new session.
-- On the final code, the agent ran the tests and lint: `.venv/bin/python -m pytest` gave `157 passed`, and `.venv/bin/ruff check` gave `All checks passed!`. I still need to read the diff and run these myself before opening the pull request.
+- On the final code, the agent ran the tests and lint: `.venv/bin/python -m pytest` gave `157 passed`, and `.venv/bin/ruff check` gave `All checks passed!`.
+- I read the diff and ran the tests and lint myself before opening the pull request.
 
 ## Hidden Instruction Check
 
