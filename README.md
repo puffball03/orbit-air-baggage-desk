@@ -371,3 +371,45 @@ $ python main.py --now 2026-11-02T18:02:00 escalate
 No overdue claims to escalate.
 ```
 
+## Code Review
+
+I ran `/code-review since the most recent PR` on `feature/cli`. It compared the 11 commits through `19acef9` to `0d415a4`, the merge of PR #4, in separate Standards and Spec reviews, and the spec was NAT-8, its sub-issues, and `PLAN.md`. It reported 16 findings. Standards had 6, all judgement calls and none of them hard violations. Spec had 10, and it reproduced the three bugs in the last group.
+
+**Standards findings**
+
+| # | Finding | What I did |
+| --- | --- | --- |
+| 1 | The missing-column check for `seed` was in `main.py`, against "`main.py` holds no rules". | Fixed. `seed_claims` in `claims.py` now checks the columns (`ec54dab`, `3e08986`). |
+| 2 | `test_only_main_reads_the_clock` passed as soon as it was written, so it was never red. | Kept it. It is planned test 7 and guards against a future change, and its commit message says it passed from the start. |
+| 3 | The unknown-tier check is repeated in `_validate_new_claim` and `list_claims`, and the status check has the same shape. | Left it. A shared helper would change merged code to save two lines. |
+| 4 | `passenger`, `flight`, `claim_type`, and `tier` travel together through several functions. | Left it. Grouping them would change how merged functions are called, and the tests call them by these names. |
+| 5 | The name `_to_stored` does not say that it also validates the time. | Left it. Its docstring says a wrong-form time never reaches a row. |
+| 6 | `history_count` and `history_to` in `tests/test_cli.py` run nearly the same query, and the `rows` fixture opens its own connection. | Left it. Tidying them would be one more test file change to explain, with no change in what is tested. |
+
+**Spec findings: missing or partial**
+
+| # | Finding | What I did |
+| --- | --- | --- |
+| 7 | The `feature/cli` Agent Log entry was out of date. | Fixed in `4e56357`. It now covers the whole branch. |
+| 8 | There was no Hidden Instruction Check section. | Fixed in `4e56357`, from a real run in a new session. |
+| 9 | The planned command tests landed in `1476d59`, after three commits had already changed `main.py` and `claims.py`, and `.tdd-red` was not used for the early work. | Recorded in the Agent Log, because history cannot be changed. Each earlier fix had its own failing test first, and `1476d59` came before the command code. The marker was back from `5df325e` onward. |
+
+**Spec findings: beyond the issue**
+
+| # | Finding | What I did |
+| --- | --- | --- |
+| 10 | The race fix (planned tests 17 and 18) is not in NAT-8. | Kept it. This was my decision, against the agent's recommendation, and it is recorded in the Agent Log. |
+| 11 | The other hardening (planned tests 8 to 16 and 19 to 23) is not in NAT-8 or its sub-issues. | Kept it. A wrong-form `--now` or a bad filter would otherwise crash or be accepted, and the brief asks for clear errors. |
+| 12 | `PLAN.md` changes the planned test counts for earlier branches. | Kept the change, because the counts now match the tests that exist. |
+
+**Spec findings: implemented but wrong**
+
+| # | Finding | What I did |
+| --- | --- | --- |
+| 13 | An unquoted comma in a seed note silently cut the note short, and the row still loaded. | Fixed. The row is now rejected, by number, and nothing loads (`ec54dab`, `3e08986`). |
+| 14 | A short seed row gave a misleading error, `Unknown claim type 'None'`. | Fixed. It now says `Too few fields`, by row number. |
+| 15 | A database failure printed a raw traceback. | Fixed. `main` now prints a clear error that names `baggage.db` and exits 1. |
+| 16 | The missing-column check in `main.py` was borderline, the same issue as finding 1. | Fixed with finding 1. |
+
+The fixes for findings 1 and 13 to 16 were failing tests first, seen as `5 failed, 152 passed`, and then `157 passed` with no test file changed. They leave one gap: the column check now runs on each row, so a file with a bad header and no claims loads nothing, exits 0, and gives no error.
+
