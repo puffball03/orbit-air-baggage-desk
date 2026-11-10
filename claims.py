@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 CLAIM_TYPES = ("delayed", "lost", "damaged")
+SEED_COLUMNS = ("passenger", "flight", "type", "tier", "note")
 DEADLINE_HOURS = {"gold": 4, "silver": 24, "standard": 72}
 ALLOWED_CHANGES = {
     "open": ("assigned", "escalated"),
@@ -31,24 +32,40 @@ def _validate_new_claim(passenger, flight, claim_type, tier):
         raise ClaimError(f"Unknown tier '{tier}'. Allowed: {allowed}.")
 
 
+def _require_naive_utc(moment):
+    if not isinstance(moment, datetime) or moment.utcoffset() is not None:
+        raise ClaimError(f"Time must be a naive UTC datetime, not {moment!r}.")
+
+
+def _to_stored(moment):
+    """Every time saved goes through here, so a wrong-form time never reaches a row."""
+    _require_naive_utc(moment)
+    return moment.isoformat()
+
+
 def _insert_history(conn, claim_id, old_status, new_status, changed_by, now):
+    _require_not_blank(changed_by, "Changed by")
     conn.execute(
         """
         INSERT INTO history (claim_id, old_status, new_status, changed_by, changed_at)
         VALUES (?, ?, ?, ?, ?)
         """,
-        (claim_id, old_status, new_status, changed_by, now.isoformat()),
+        (claim_id, old_status, new_status, changed_by, _to_stored(now)),
     )
 
 
 def _insert_claim(conn, passenger, flight, claim_type, tier, note, changed_by, now):
-    deadline = now + timedelta(hours=DEADLINE_HOURS[tier])
+    filed_at = _to_stored(now)
+    try:
+        deadline = _to_stored(now + timedelta(hours=DEADLINE_HOURS[tier]))
+    except OverflowError:
+        raise ClaimError(f"The deadline for a claim filed at {filed_at} is out of range.") from None
     cursor = conn.execute(
         """
         INSERT INTO claims (passenger, flight, type, tier, status, note, filed_at, deadline)
         VALUES (?, ?, ?, ?, 'open', ?, ?, ?)
         """,
-        (passenger, flight, claim_type, tier, note, now.isoformat(), deadline.isoformat()),
+        (passenger, flight, claim_type, tier, note, filed_at, deadline),
     )
     claim_id = cursor.lastrowid
     _insert_history(conn, claim_id, None, "open", changed_by, now)
@@ -62,13 +79,54 @@ def file_claim(conn, passenger, flight, claim_type, tier, changed_by, now, note=
         return _insert_claim(conn, passenger, flight, claim_type, tier, note, changed_by, now)
 
 
+def _check_seed_columns(row):
+    missing = [name for name in SEED_COLUMNS if name not in row]
+    if missing:
+        raise ClaimError(f"Missing column: {', '.join(missing)}.")
+    # csv.DictReader puts extra fields under None, and fills missing ones with None.
+    if None in row:
+        raise ClaimError("Too many fields. Put quotes around a value that contains a comma.")
+    if any(row[name] is None for name in SEED_COLUMNS):
+        raise ClaimError("Too few fields.")
+
+
+def seed_claims(conn, rows, now):
+    """Validate every row, then save them all in one transaction. Returns the new ids."""
+    for number, row in enumerate(rows, start=1):
+        try:
+            _check_seed_columns(row)
+            _validate_new_claim(row["passenger"], row["flight"], row["type"], row["tier"])
+        except ClaimError as error:
+            raise ClaimError(f"Seed row {number}: {error}") from None
+    with conn:
+        return [
+            _insert_claim(
+                conn,
+                row["passenger"],
+                row["flight"],
+                row["type"],
+                row["tier"],
+                row["note"] or None,
+                "seed",
+                now,
+            )
+            for row in rows
+        ]
+
+
 def list_claims(conn, status=None, tier=None):
     conditions = []
     params = []
     if status is not None:
+        if status not in ALLOWED_CHANGES:
+            allowed = ", ".join(ALLOWED_CHANGES)
+            raise ClaimError(f"Unknown status '{status}'. Allowed: {allowed}.")
         conditions.append("status = ?")
         params.append(status)
     if tier is not None:
+        if tier not in DEADLINE_HOURS:
+            allowed = ", ".join(DEADLINE_HOURS)
+            raise ClaimError(f"Unknown tier '{tier}'. Allowed: {allowed}.")
         conditions.append("tier = ?")
         params.append(tier)
 
@@ -91,7 +149,14 @@ def _change_status(conn, claim_id, new_status, changed_by, now):
     old_status = _require_claim(conn, claim_id)["status"]
     if new_status not in ALLOWED_CHANGES[old_status]:
         raise ClaimError(f"Cannot change claim {claim_id} from {old_status} to {new_status}.")
-    conn.execute("UPDATE claims SET status = ? WHERE id = ?", (new_status, claim_id))
+    # The status is read before the transaction starts, so another writer can get in first.
+    # Matching the old status here means only one of them changes the claim.
+    updated = conn.execute(
+        "UPDATE claims SET status = ? WHERE id = ? AND status = ?",
+        (new_status, claim_id, old_status),
+    )
+    if updated.rowcount == 0:
+        raise ClaimError(f"Claim {claim_id} changed during this update. Nothing was saved.")
     _insert_history(conn, claim_id, old_status, new_status, changed_by, now)
 
 
@@ -124,6 +189,7 @@ def get_history(conn, claim_id):
 
 
 def is_overdue(claim, now):
+    _require_naive_utc(now)
     return now > datetime.fromisoformat(claim["deadline"])
 
 

@@ -72,10 +72,10 @@ The brief leaves these open. Each one is a choice we can revisit before the matc
 | Topic                | Decision                                                                                                                                       |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | Status API           | No public "set status" function, because it could skip the overdue check. Public: `file_claim`, `list_claims`, `assign_claim`, `resolve_claim`, `close_claim`, `escalate_overdue`, `get_history`, `seed_claims`. They share a private transition helper and an `ALLOWED_CHANGES` dictionary. |
-| Transactions         | Public functions own `with conn:`. Private helpers only write. `with conn:` does not nest (the inner exit commits), so helpers must never open one. |
+| Transactions         | Public functions own `with conn:`. Private helpers only write. `with conn:` does not nest (the inner exit commits), so helpers must never open one. The status read comes before the transaction starts, so the status update also matches the old status. If another writer got in first, the change is a `ClaimError` and nothing is saved. A failed `escalate` batch saves nothing and can be run again. |
 | Who made the change  | Optional global `--by`, default `desk`. `escalate` records `system`. `seed` records `seed`. `seed` must work with no extra arguments.          |
-| Time                 | Stored as naive UTC ISO strings. `main.py` converts: a naive `--now` is treated as UTC, and an aware one is converted. Overdue is compared as `datetime` objects in Python, not as strings in SQL. A bad `--now` is a clear error. |
-| Blank values         | Whitespace-only counts as blank, for passenger, flight, and agent.                                                                             |
+| Time                 | Stored as naive UTC ISO strings. `main.py` converts: a naive `--now` is treated as UTC, and an aware one is converted. Overdue is compared as `datetime` objects in Python, not as strings in SQL. A bad `--now` is a clear error. `claims.py` owns the stored format and raises `ClaimError` for any time that is not naive UTC, so one bad row cannot break later `escalate` runs. |
+| Blank values         | Whitespace-only counts as blank, for passenger, flight, agent, and who made the change. `claims.py` enforces this, so a blank `--by` is a clear error. |
 | CLI shape            | `file --passenger P --flight F --type T --tier X [--note N]`, `list [--status S] [--tier X]`, `assign ID AGENT`, `resolve ID`, `close ID`, `escalate`, `history ID`, `seed PATH`. |
 | Errors               | Rules raise `ClaimError`. `main.py` prints it to stderr and exits 1. An unknown claim id is also a `ClaimError`.                               |
 | Seed                 | All or nothing: validate every row, then insert in one transaction. An error names the row. The filed time is the current time, so `--now` backdates a seed. Running it twice loads duplicates, and the README says so. |
@@ -139,9 +139,9 @@ The rubric expects exactly four pull requests, so setup goes directly on `main`.
 
 ## Branches and planned tests
 
-Planned: 44 test functions against a minimum of 20. Parametrized tests count as more.
+Planned: 67 test functions against a minimum of 20. Parametrized tests count as more.
 
-### 1. `feature/schema-and-filing`: `tests/test_claims.py` (planned 14)
+### 1. `feature/schema-and-filing`: `tests/test_claims.py` (planned 15)
 
 Also adds `tests/conftest.py`, with a connection fixture and a fixed `NOW`.
 
@@ -159,6 +159,7 @@ Also adds `tests/conftest.py`, with a connection fixture and a fixed `NOW`.
 12. Filing writes a history entry: no old status, `open`, who, and when
 13. `list_claims` returns everything, then filters by status, by tier, and by both (parametrized)
 14. If the filing's history write fails, no claim row remains
+15. A `None` passenger or flight is rejected (parametrized), added after `/code-review`
 
 ### 2. `feature/assign-and-status`: `tests/test_status.py` (planned 12)
 
@@ -178,7 +179,7 @@ Escalated claims are set up with direct SQL here, because escalation arrives on 
 11. `get_history` returns a claim's full trail in order
 12. If the history write fails, the claim is unchanged
 
-### 3. `feature/deadlines-and-escalation`: `tests/test_escalation.py` (planned 11)
+### 3. `feature/deadlines-and-escalation`: `tests/test_escalation.py` (planned 12)
 
 1. `is_overdue` is false one minute before the deadline
 2. `is_overdue` is false exactly at the deadline
@@ -192,6 +193,8 @@ Escalated claims are set up with direct SQL here, because escalation arrives on 
 9. Escalation adds a history entry with the old status, `escalated`, `system`, and the time
 10. Gold, silver, and standard each escalate only after their own deadline (parametrized)
 11. **Rollback:** the history write is forced to fail, and no claim changes
+12. **Batch rollback:** only a later claim's history write fails, and the whole batch rolls back, added
+    after `/code-review`
 
 **How the rollback test works:** the test adds a SQLite trigger that aborts inserts into `history`,
 calls the function, and expects an error. It then checks the status **on the same connection**.
@@ -201,7 +204,7 @@ difference: with `with conn:` the status stays `open`, and without it the same c
 `assigned`. Before merging, delete the transaction, watch the test fail, restore it, and put the
 result in the **Agent Log**.
 
-### 4. `feature/cli`: `tests/test_cli.py` (minimum 3, planned 7)
+### 4. `feature/cli`: `tests/test_cli.py` (minimum 3, planned 28)
 
 Also adds `seed_claims.csv`, with at least 10 claims across all types and tiers, including the exact
 hidden instruction note. Rule code stays in `claims.py`, so `main.py` is thin.
@@ -211,9 +214,48 @@ hidden instruction note. Rule code stays in `claims.py`, so `main.py` is thin.
 3. A rule error prints a clear message to stderr, exits 1, and saves nothing
 4. `--now` before the command sets the filed time, and `escalate` reports the overdue ids
 5. A bad `--now` value is a clear error
-6. `seed seed_claims.csv` loads the file, the hidden instruction note comes back unchanged, and a
-   file with a bad row loads nothing
+6. `seed seed_claims.csv` loads the file, which has the required columns, at least 10 claims, and all
+   types and tiers, and the hidden instruction note comes back unchanged
 7. `claims.py` contains no clock call such as `datetime.now`
+
+Added after the architecture review, for the time rule:
+
+8. Filing rejects an aware time or a text time, and saves nothing (parametrized)
+9. Assign, resolve, and close reject an aware time, and save nothing (parametrized)
+10. `is_overdue` rejects an aware time
+11. `escalate_overdue` rejects an aware time and changes nothing
+12. A rejected aware filing does not block later escalation
+13. `resolve_now` returns naive UTC for naive, `+00:00`, `Z`, and other offset values (parametrized)
+14. `resolve_now` rejects a bad value with an error that names `--now` (parametrized)
+15. `resolve_now` with no value returns a naive time
+16. A time converted from an offset can file a claim and escalate it
+
+Added for the race between the status check and the write:
+
+17. Losing a race on assign, resolve, or close is rejected and saves nothing (parametrized)
+18. Losing a race during escalation saves nothing, and a rerun works
+
+Added for gaps found in review:
+
+19. `resolve_now` rejects a value that cannot convert to UTC, with an error that names `--now`
+    (parametrized)
+20. Filing rejects a time whose deadline would be out of range, and saves nothing
+21. Filing rejects a blank or missing "who made the change", and saves nothing (parametrized)
+22. Assign, resolve, and close reject a blank or missing "who made the change", and save nothing
+    (parametrized)
+23. `list_claims` rejects an unknown status or tier (parametrized)
+
+Split out from tests 5 and 6 when the command tests were written:
+
+24. Filing through the command line at a time with no valid deadline is a clear error
+25. `seed` with a bad row, a missing column, or a missing file is a clear error and loads nothing
+    (parametrized)
+
+Added for `/code-review` findings on this branch:
+
+26. A seed row with too many or too few fields names the row and loads nothing (parametrized)
+27. `seed_claims` checks the columns itself, so `main.py` holds no seed rule (parametrized)
+28. A database failure is a clear error, not a traceback
 
 This branch also holds the final evidence, because it is the last pull request:
 
